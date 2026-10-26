@@ -75,7 +75,31 @@ def check_login(username,password):
 def _dummy_hash():
     return hash_password('a-password-no-one-uses')
 
+def bootstrap_admin_from_secrets():
+    """Initialize first administrator from deployment secrets only when DB is empty."""
+    with conn() as db:
+        existing = db.execute('SELECT COUNT(*) FROM users').fetchone()[0]
+    if existing:
+        return
+    try:
+        admin = st.secrets.get('bootstrap_admin', {})
+        username = admin.get('username', '').strip()
+        name = admin.get('display_name', '').strip()
+        password = admin.get('password', '')
+    except (FileNotFoundError, KeyError, AttributeError, TypeError):
+        return
+    if not (username and name and password):
+        return
+    try:
+        create_user(username, name, password, 'admin')
+    except sqlite3.IntegrityError:
+        pass  # Another session completed initialization first.
+    except ValueError:
+        st.error('Konfigurasi bootstrap_admin tidak valid. Username minimal 3 karakter dan password minimal 12 karakter.')
+        st.stop()
+
 def gate():
+    bootstrap_admin_from_secrets()
     with conn() as db:
         total=db.execute('SELECT COUNT(*) FROM users').fetchone()[0]
     if total==0:
